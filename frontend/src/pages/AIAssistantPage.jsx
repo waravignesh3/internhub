@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Card, Button } from '../components/UIComponents';
-import { Bot, Send, Sparkles, User, Copy, Check, RefreshCw, MessageSquare, RotateCcw } from 'lucide-react';
+import { Bot, Send, Sparkles, User, Copy, Check, RefreshCw, MessageSquare, RotateCcw, Zap } from 'lucide-react';
 
 export const AIAssistantPage = () => {
   const { user } = useAuth();
@@ -43,43 +43,135 @@ export const AIAssistantPage = () => {
     setLoading(true);
     setLastFailedMessage(null);
 
-    try {
-      const historyPayload = updatedMessages.map((m) => ({
-        role: m.sender === 'USER' ? 'user' : 'model',
-        text: m.text
-      }));
+    const historyPayload = updatedMessages.slice(0, -1).map((m) => ({
+      role: m.sender === 'USER' ? 'user' : 'model',
+      text: m.text
+    }));
 
-      const res = await api.post('/ai/chat', {
-        message: queryText,
-        history: historyPayload
+    const aiMsgId = Date.now() + 1;
+    let accumulatedText = '';
+    let providerName = 'Google Gemini AI';
+    let duration = null;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('/api/ai/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          message: queryText,
+          history: historyPayload
+        })
       });
 
-      if (res.data.success || res.data.response) {
+      if (!response.ok) {
+        throw new Error(`Server returned HTTP ${response.status}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/event-stream')) {
+        const data = await response.json();
         setMessages((prev) => [
           ...prev,
           {
-            id: Date.now() + 1,
+            id: aiMsgId,
             sender: 'ASSISTANT',
-            text: res.data.response,
-            isFallback: res.data.isFallback,
-            provider: res.data.provider
+            text: data.response || 'Response received.',
+            provider: data.provider,
+            isFallback: data.isFallback,
+            durationMs: data.durationMs
           }
         ]);
-      } else {
-        throw new Error(res.data.error || 'Failed to receive AI response');
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      const errorText = err.response?.data?.error || err.message || 'Connection error with AI backend.';
-      setLastFailedMessage(queryText);
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now() + 1,
+          id: aiMsgId,
           sender: 'ASSISTANT',
-          isError: true,
-          text: `I encountered an issue connecting to the AI backend (${errorText}). Click 'Retry' below to resend your message.`
+          text: '',
+          isStreaming: true
         }
       ]);
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.text) {
+                accumulatedText += parsed.text;
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === aiMsgId ? { ...m, text: accumulatedText } : m))
+                );
+              }
+              if (parsed.done) {
+                providerName = parsed.provider || providerName;
+                duration = parsed.durationMs;
+              }
+            } catch (e) {
+              // Ignore line parse errors
+            }
+          }
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId
+            ? { ...m, text: accumulatedText || 'No output generated.', isStreaming: false, provider: providerName, durationMs: duration }
+            : m
+        )
+      );
+    } catch (err) {
+      console.warn('AIAssistantPage fallback to standard chat endpoint:', err.message);
+      try {
+        const res = await api.post('/ai/chat', {
+          message: queryText,
+          history: historyPayload
+        });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: aiMsgId,
+            sender: 'ASSISTANT',
+            text: res.data.response || 'Response received.',
+            provider: res.data.provider,
+            durationMs: res.data.durationMs,
+            isFallback: res.data.isFallback
+          }
+        ]);
+      } catch (fallbackErr) {
+        setLastFailedMessage(queryText);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: aiMsgId,
+            sender: 'ASSISTANT',
+            isError: true,
+            text: `Connection error (${fallbackErr.message}). Click 'Retry' below to resend your message.`
+          }
+        ]);
+      }
     } finally {
       setLoading(false);
     }
@@ -106,7 +198,7 @@ export const AIAssistantPage = () => {
           <h1 className="text-2xl font-black flex items-center gap-2">
             <Bot className="w-6 h-6 text-[var(--primary)]" /> InternHub AI Career Coach
           </h1>
-          <p className="text-xs text-[var(--text-muted)] mt-1">Interactive career, resume, and technical interview advisor.</p>
+          <p className="text-xs text-[var(--text-muted)] mt-1">Interactive career, resume, and technical interview advisor with streaming responses.</p>
         </div>
         <Button
           variant="outline"
@@ -124,7 +216,8 @@ export const AIAssistantPage = () => {
           <button
             key={idx}
             onClick={() => handleSend(item.prompt)}
-            className="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] hover:border-[var(--primary)] hover:text-[var(--primary)] text-[var(--text-secondary)] whitespace-nowrap transition-all shadow-2xs flex items-center gap-1.5 shrink-0"
+            disabled={loading}
+            className="px-3.5 py-1.5 text-xs font-semibold rounded-full bg-[var(--bg-card)] border border-[var(--border-color)] hover:border-[var(--primary)] hover:text-[var(--primary)] text-[var(--text-secondary)] whitespace-nowrap transition-all shadow-2xs flex items-center gap-1.5 shrink-0 disabled:opacity-50 cursor-pointer"
           >
             <MessageSquare className="w-3 h-3 text-[var(--primary)]" /> {item.label}
           </button>
@@ -150,15 +243,20 @@ export const AIAssistantPage = () => {
                   : 'bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-primary)] rounded-bl-none shadow-sm'
               }`}
             >
-              <div className="whitespace-pre-wrap leading-relaxed">{msg.text}</div>
+              <div className="whitespace-pre-wrap leading-relaxed">{msg.text || (msg.isStreaming ? '...' : '')}</div>
 
               {msg.provider && (
-                <span className="block mt-2 text-[9px] font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                  Provider: {msg.provider}
-                </span>
+                <div className="mt-2 pt-1.5 border-t border-[var(--border-color)]/30 flex items-center justify-between text-[9px] font-bold text-[var(--text-muted)]">
+                  <span>✦ {msg.provider}</span>
+                  {msg.durationMs && (
+                    <span className="flex items-center gap-0.5 text-emerald-500">
+                      <Zap className="w-2.5 h-2.5" /> {msg.durationMs}ms
+                    </span>
+                  )}
+                </div>
               )}
 
-              {msg.sender === 'ASSISTANT' && !msg.isError && (
+              {msg.sender === 'ASSISTANT' && !msg.isError && msg.text && (
                 <button
                   onClick={() => handleCopy(msg.id, msg.text)}
                   className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-[var(--text-muted)] transition-opacity"
@@ -177,12 +275,11 @@ export const AIAssistantPage = () => {
           </div>
         ))}
 
-        {/* Retry Button */}
         {lastFailedMessage && !loading && (
           <div className="flex justify-center my-2">
             <button
               onClick={() => handleSend(lastFailedMessage)}
-              className="px-4 py-2 rounded-xl bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:bg-rose-600 transition-colors"
+              className="px-4 py-2 rounded-xl bg-rose-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-sm hover:bg-rose-600 transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Retry Last Message
             </button>
@@ -195,7 +292,7 @@ export const AIAssistantPage = () => {
               <Bot className="w-5 h-5 animate-spin" />
             </div>
             <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] text-xs text-[var(--text-muted)] flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)] animate-ping" /> InternHub AI is processing context...
+              <span className="w-2 h-2 rounded-full bg-[var(--primary)] animate-ping" /> InternHub AI streaming response...
             </div>
           </div>
         )}
@@ -209,8 +306,9 @@ export const AIAssistantPage = () => {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask InternHub AI anything about your profile, skills, career goals, or interviews..."
-          className="flex-1 px-4 py-3 text-xs rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-ring)] resize-none max-h-24 overflow-y-auto"
+          disabled={loading}
+          placeholder="Ask InternHub AI anything... (Enter to send, Shift+Enter for new line)"
+          className="flex-1 px-4 py-3 text-xs rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--primary-ring)] resize-none max-h-24 overflow-y-auto disabled:opacity-50"
         />
         <Button type="submit" disabled={!input.trim() || loading} className="px-6 py-3 shrink-0">
           <Send className="w-4 h-4" /> Send

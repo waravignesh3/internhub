@@ -101,12 +101,12 @@ export const Sidebar = () => {
               key={item.path}
               to={item.path}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all group ${
+                `flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold nav-item-transition group ${
                   isActive
-                    ? 'bg-[var(--primary)] text-white shadow-md shadow-[var(--primary)]/20'
+                    ? 'bg-[var(--primary)] text-white shadow-md shadow-[var(--primary)]/20 font-bold'
                     : item.highlight
                     ? 'bg-[var(--primary-light)] text-[var(--primary)] border border-[var(--primary)]/30'
-                    : 'text-[var(--text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[var(--text-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-[var(--text-primary)]'
                 }`
               }
             >

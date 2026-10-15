@@ -3,14 +3,14 @@ import { X, Check, AlertCircle, Info, AlertTriangle, Loader2 } from 'lucide-reac
 
 // 1. Button
 export const Button = ({ children, variant = 'primary', size = 'md', className = '', loading = false, disabled = false, ...props }) => {
-  const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
+  const base = 'inline-flex items-center justify-center font-medium rounded-lg portal-btn focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer';
   
   const variants = {
-    primary: 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] focus:ring-[var(--primary)] shadow-sm',
+    primary: 'bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] focus:ring-[var(--primary)] shadow-xs hover:shadow-md',
     secondary: 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-700',
-    outline: 'border border-[var(--border-color)] bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-[var(--text-primary)]',
+    outline: 'border border-[var(--border-color)] bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-[var(--text-primary)] hover:border-[var(--primary)]',
     ghost: 'bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-[var(--text-primary)]',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 shadow-sm'
+    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 shadow-xs'
   };
 
   const sizes = {
@@ -25,7 +25,7 @@ export const Button = ({ children, variant = 'primary', size = 'md', className =
       disabled={disabled || loading}
       {...props}
     >
-      {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+      {loading && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
       {children}
     </button>
   );
@@ -80,9 +80,9 @@ export const Badge = ({ children, variant = 'info', className = '' }) => {
 };
 
 // 5. Card
-export const Card = ({ children, className = '', hover = false, ...props }) => (
+export const Card = ({ children, className = '', hover = true, ...props }) => (
   <div
-    className={`p-5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-primary)] shadow-sm transition-all duration-200 ${hover ? 'hover:shadow-md hover:border-[var(--primary)]/50' : ''} ${className}`}
+    className={`p-5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] text-[var(--text-primary)] shadow-2xs ${hover ? 'portal-card' : ''} ${className}`}
     {...props}
   >
     {children}
@@ -97,7 +97,7 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-xl' 
       <div className={`w-full ${maxWidth} bg-[var(--bg-card)] rounded-2xl border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]`}>
         <div className="flex items-center justify-between p-5 border-b border-[var(--border-color)]">
           <h3 className="text-lg font-bold text-[var(--text-primary)]">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-slate-100 dark:hover:bg-slate-800">
+          <button onClick={onClose} className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -108,8 +108,8 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = 'max-w-xl' 
 };
 
 // 7. StatCard
-export const StatCard = ({ title, value, subtitle, icon: Icon, trend, color = 'primary' }) => (
-  <Card className="relative overflow-hidden">
+export const StatCard = ({ title, value, subtitle, icon: Icon, trend, color = 'primary', className = '' }) => (
+  <Card hover className={`relative overflow-hidden portal-card ${className}`}>
     <div className="flex items-center justify-between">
       <div>
         <p className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider">{title}</p>
@@ -117,7 +117,7 @@ export const StatCard = ({ title, value, subtitle, icon: Icon, trend, color = 'p
         {subtitle && <p className="text-xs text-[var(--text-muted)] mt-1">{subtitle}</p>}
       </div>
       {Icon && (
-        <div className="p-3 rounded-xl bg-[var(--primary-light)] text-[var(--primary)]">
+        <div className="p-3 rounded-xl bg-[var(--primary-light)] text-[var(--primary)] transition-transform duration-200 group-hover:scale-110">
           <Icon className="w-6 h-6" />
         </div>
       )}

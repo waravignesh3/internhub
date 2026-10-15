@@ -33,11 +33,54 @@ async function getStudentDashboard(req, res) {
     const totalApps = await query('SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1', [student.id]);
     const shortlisted = await query("SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1 AND status = 'SHORTLISTED'", [student.id]);
     const selected = await query("SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1 AND status = 'SELECTED'", [student.id]);
+    const pending = await query("SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1 AND status IN ('APPLIED', 'UNDER_REVIEW')", [student.id]);
+    const rejected = await query("SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1 AND status = 'REJECTED'", [student.id]);
     const saved = await query('SELECT COUNT(*) as cnt FROM bookmarks WHERE student_id = $1', [student.id]);
+    const totalInternshipsRes = await query('SELECT COUNT(*) as cnt FROM internships WHERE is_published = 1');
 
-    const totalCount = parseInt(totalApps[0].cnt || totalApps[0].CNT || 0, 10);
-    const selectedCount = parseInt(selected[0].cnt || selected[0].CNT || 0, 10);
+    const totalCount = parseInt(totalApps[0]?.cnt || totalApps[0]?.CNT || 0, 10);
+    const selectedCount = parseInt(selected[0]?.cnt || selected[0]?.CNT || 0, 10);
+    const pendingCount = parseInt(pending[0]?.cnt || pending[0]?.CNT || 0, 10);
+    const rejectedCount = parseInt(rejected[0]?.cnt || rejected[0]?.CNT || 0, 10);
+    const shortlistedCount = parseInt(shortlisted[0]?.cnt || shortlisted[0]?.CNT || 0, 10);
+    const savedCount = parseInt(saved[0]?.cnt || saved[0]?.CNT || 0, 10);
+    const totalAvailableInternships = parseInt(totalInternshipsRes[0]?.cnt || totalInternshipsRes[0]?.CNT || 0, 10);
     const successRate = totalCount > 0 ? Math.round((selectedCount / totalCount) * 100) : 0;
+
+    // Real Application Status Distribution
+    const statusDistRaw = await query(
+      `SELECT status, COUNT(*) as count FROM applications WHERE student_id = $1 GROUP BY status`,
+      [student.id]
+    );
+    const statusDistribution = statusDistRaw.map(r => ({
+      name: r.status,
+      value: parseInt(r.count || r.COUNT || 0, 10)
+    }));
+
+    // Real Internship Domain / Category Distribution
+    const domainDistRaw = await query(
+      `SELECT domain, COUNT(*) as count FROM internships WHERE is_published = 1 GROUP BY domain ORDER BY count DESC LIMIT 6`
+    );
+    const categoryDistribution = domainDistRaw.map(r => ({
+      category: r.domain,
+      count: parseInt(r.count || r.COUNT || 0, 10)
+    }));
+
+    // Real Application Trends over time (grouped by month)
+    const allAppsRaw = await query(
+      `SELECT applied_at FROM applications WHERE student_id = $1 ORDER BY applied_at ASC`,
+      [student.id]
+    );
+    const monthCounts = {};
+    for (const app of allAppsRaw) {
+      const d = new Date(app.applied_at || Date.now());
+      const monthLabel = d.toLocaleString('en-US', { month: 'short' });
+      monthCounts[monthLabel] = (monthCounts[monthLabel] || 0) + 1;
+    }
+    const applicationTrends = Object.keys(monthCounts).map(m => ({
+      month: m,
+      applications: monthCounts[m]
+    }));
 
     // Fetch upcoming interviews
     const interviews = await query(
@@ -79,12 +122,18 @@ async function getStudentDashboard(req, res) {
       success: true,
       stats: {
         totalApplications: totalCount,
-        shortlisted: parseInt(shortlisted[0].cnt || shortlisted[0].CNT || 0, 10),
+        pending: pendingCount,
+        shortlisted: shortlistedCount,
         selected: selectedCount,
-        savedInternships: parseInt(saved[0].cnt || saved[0].CNT || 0, 10),
+        rejected: rejectedCount,
+        savedInternships: savedCount,
+        totalAvailableInternships,
         successRate,
         profileCompletion: completionDetails.percentage
       },
+      statusDistribution,
+      categoryDistribution,
+      applicationTrends,
       completionDetails,
       student,
       upcomingInterviews: interviews,

@@ -5,7 +5,6 @@ const { calculateProfileCompletion } = require('../utils/profileCompletion');
 /**
  * GET /api/ai/status
  * Returns the real connection state of the AI provider.
- * Never sends the API key to the client.
  */
 async function aiStatus(req, res) {
   try {
@@ -20,7 +19,6 @@ async function aiStatus(req, res) {
       });
     }
 
-    // Perform a lightweight real probe using a minimal prompt
     try {
       await aiService.callGeminiApi('Reply with exactly: ok', '', []);
       return res.json({
@@ -94,6 +92,71 @@ async function chat(req, res) {
   } catch (error) {
     console.error('ai chat error:', error);
     return res.status(500).json({ success: false, error: 'AI chatbot failed.' });
+  }
+}
+
+async function chatStream(req, res) {
+  try {
+    const { message, history } = req.body;
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ success: false, error: 'Message content is required.' });
+    }
+
+    let studentContext = {};
+    if (req.user) {
+      const s = await query('SELECT * FROM students WHERE user_id = $1', [req.user.id]);
+      if (s.length > 0) {
+        studentContext = s[0];
+        const sks = await query('SELECT sk.name FROM student_skills ss JOIN skills sk ON ss.skill_id = sk.id WHERE ss.student_id = $1', [studentContext.id]);
+        studentContext.skills = sks.map(k => k.name);
+
+        const projects = await query('SELECT * FROM projects WHERE student_id = $1', [studentContext.id]);
+        studentContext.projects = projects;
+
+        const totalApps = await query('SELECT COUNT(*) as cnt FROM applications WHERE student_id = $1', [studentContext.id]);
+        studentContext.totalApplications = parseInt(totalApps[0].cnt || totalApps[0].CNT || 0, 10);
+
+        studentContext.completionDetails = calculateProfileCompletion(studentContext, studentContext.skills, projects);
+        studentContext.profile_completion = studentContext.completionDetails.percentage;
+      }
+    }
+
+    if (!aiService.isConfigured()) {
+      return res.json({
+        success: true,
+        provider: 'InternHub Career Assistant (Setup Required)',
+        isFallback: true,
+        response: 'InternHub AI is ready! Configure AI_API_KEY in backend/.env to enable live Gemini answers.'
+      });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const sysInstruction = `You are InternHub AI, the career assistant for an Internship Management Portal. Help students discover internships, improve resumes, and prepare for interviews. Be concise, professional, and clear.
+Student: ${studentContext.full_name || 'Student'}, CGPA: ${studentContext.cgpa || 'N/A'}, Skills: ${Array.isArray(studentContext.skills) ? studentContext.skills.join(', ') : 'Not set'}, Profile Completion: ${studentContext.profile_completion || 0}%.`;
+
+    const result = await aiService.callGeminiApiStream(
+      message,
+      sysInstruction,
+      history || [],
+      (chunkText) => {
+        res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+      }
+    );
+
+    res.write(`data: ${JSON.stringify({ done: true, provider: `Google Gemini AI (${result.modelUsed})`, ttftMs: result.ttftMs, durationMs: result.durationMs })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    return res.end();
+  } catch (error) {
+    console.error('ai chatStream error:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, error: 'AI streaming failed.' });
+    } else {
+      res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+      return res.end();
+    }
   }
 }
 
@@ -197,6 +260,7 @@ async function projectRecommendations(req, res) {
 module.exports = {
   aiStatus,
   chat,
+  chatStream,
   skillGap,
   resumeAssistant,
   careerAdvisor,

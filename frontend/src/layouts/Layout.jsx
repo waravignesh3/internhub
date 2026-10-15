@@ -22,7 +22,9 @@ export const Layout = () => {
         {isAuthenticated && !isPublicPage && <Sidebar />}
 
         <main className="flex-1 w-full overflow-x-hidden">
-          <Outlet />
+          <div key={location.pathname} className="page-transition min-h-full flex flex-col flex-1">
+            <Outlet />
+          </div>
         </main>
       </div>
 

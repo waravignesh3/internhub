@@ -85,6 +85,7 @@ export const ProgressTrackerPage = () => {
               type="number"
               value={weekNumber}
               onChange={(e) => setWeekNumber(e.target.value)}
+              className="week-number-input"
               required
             />
             <Input
